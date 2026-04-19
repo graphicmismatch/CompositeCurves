@@ -143,6 +143,11 @@ namespace CompositeCurves
 
         public float Evaluate(string curveId, float x)
         {
+            return EvaluateWithVariables(curveId, x, variables);
+        }
+
+        public float EvaluateWithVariables(string curveId, float x, CompositeCurveVariable[] mergedVariables)
+        {
             if (!enabled)
             {
                 return 0f;
@@ -150,7 +155,7 @@ namespace CompositeCurves
 
             if (mode == CompositeCurveSegmentMode.Custom)
             {
-                if (CompositeCurveGeneratedRegistry.TryEvaluate(curveId, segmentId, x, variables, out var generatedValue))
+                if (CompositeCurveGeneratedRegistry.TryEvaluate(curveId, segmentId, x, mergedVariables, out var generatedValue))
                 {
                     return generatedValue;
                 }
@@ -158,12 +163,17 @@ namespace CompositeCurves
                 return 0f;
             }
 
-            return EvaluatePreset(x);
+            return EvaluatePresetWithVariables(x, mergedVariables);
         }
 
         public float EvaluateEdge(string curveId, bool useUpperEdge)
         {
             return Evaluate(curveId, useUpperEdge ? endX : startX);
+        }
+
+        public float EvaluateEdgeWithVariables(string curveId, bool useUpperEdge, CompositeCurveVariable[] mergedVariables)
+        {
+            return EvaluateWithVariables(curveId, useUpperEdge ? endX : startX, mergedVariables);
         }
 
         public CompositeCurveSegment Clone()
@@ -315,20 +325,65 @@ namespace CompositeCurves
 
         private float GetVariableValue(string name, float fallback)
         {
-            if (variables == null)
+            return GetVariableValue(name, fallback, variables);
+        }
+
+        private float GetVariableValue(string name, float fallback, CompositeCurveVariable[] variableSource)
+        {
+            if (variableSource == null)
             {
                 return fallback;
             }
 
-            for (var i = 0; i < variables.Length; i++)
+            for (var i = 0; i < variableSource.Length; i++)
             {
-                if (string.Equals(variables[i].Name, name, StringComparison.Ordinal))
+                if (string.Equals(variableSource[i].Name, name, StringComparison.Ordinal))
                 {
-                    return variables[i].Value;
+                    return variableSource[i].Value;
                 }
             }
 
             return fallback;
+        }
+
+        private float EvaluatePresetWithVariables(float x, CompositeCurveVariable[] variableSource)
+        {
+            switch (preset)
+            {
+                case CompositeCurvePreset.Constant:
+                    return GetVariableValue("y", 0f, variableSource);
+                case CompositeCurvePreset.Linear:
+                    return (GetVariableValue("m", 1f, variableSource) * x) + GetVariableValue("c", 0f, variableSource);
+                case CompositeCurvePreset.Quadratic:
+                    return (((GetVariableValue("a", 1f, variableSource) * x) + GetVariableValue("b", 0f, variableSource)) * x) + GetVariableValue("c", 0f, variableSource);
+                case CompositeCurvePreset.Cubic:
+                    return ((((GetVariableValue("a", 1f, variableSource) * x) + GetVariableValue("b", 0f, variableSource)) * x) + GetVariableValue("c", 0f, variableSource)) * x + GetVariableValue("d", 0f, variableSource);
+                case CompositeCurvePreset.Sine:
+                    return GetVariableValue("amplitude", 1f, variableSource) * Mathf.Sin((GetVariableValue("frequency", 1f, variableSource) * x) + GetVariableValue("phase", 0f, variableSource)) + GetVariableValue("offset", 0f, variableSource);
+                case CompositeCurvePreset.Cosine:
+                    return GetVariableValue("amplitude", 1f, variableSource) * Mathf.Cos((GetVariableValue("frequency", 1f, variableSource) * x) + GetVariableValue("phase", 0f, variableSource)) + GetVariableValue("offset", 0f, variableSource);
+                case CompositeCurvePreset.Tangent:
+                    return GetVariableValue("amplitude", 1f, variableSource) * Mathf.Tan((GetVariableValue("frequency", 1f, variableSource) * x) + GetVariableValue("phase", 0f, variableSource)) + GetVariableValue("offset", 0f, variableSource);
+                case CompositeCurvePreset.QuadraticBezier:
+                {
+                    var t = NormalizeInput(x);
+                    var oneMinusT = 1f - t;
+                    return (oneMinusT * oneMinusT * GetVariableValue("y0", 0f, variableSource))
+                        + (2f * oneMinusT * t * GetVariableValue("y1", 0.5f, variableSource))
+                        + (t * t * GetVariableValue("y2", 1f, variableSource));
+                }
+                case CompositeCurvePreset.CubicBezier:
+                {
+                    var t = NormalizeInput(x);
+                    var oneMinusT = 1f - t;
+                    return (oneMinusT * oneMinusT * oneMinusT * GetVariableValue("y0", 0f, variableSource))
+                        + (3f * oneMinusT * oneMinusT * t * GetVariableValue("y1", 0.33f, variableSource))
+                        + (3f * oneMinusT * t * t * GetVariableValue("y2", 0.66f, variableSource))
+                        + (t * t * t * GetVariableValue("y3", 1f, variableSource));
+                }
+                default:
+                    return 0f;
+            }
         }
     }
 }

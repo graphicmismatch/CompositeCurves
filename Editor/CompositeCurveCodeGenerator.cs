@@ -121,11 +121,11 @@ namespace CompositeCurves.Editor
             ref string expression)
         {
             var result = new List<VariableBinding>();
-            var variables = segment.Variables ?? Array.Empty<CompositeCurveVariable>();
+            var mergedVariables = curve.GetMergedVariables(segment.Variables);
 
-            for (var i = 0; i < variables.Length; i++)
+            for (var i = 0; i < mergedVariables.Length; i++)
             {
-                var sourceName = string.IsNullOrWhiteSpace(variables[i].Name) ? $"var{i}" : variables[i].Name.Trim();
+                var sourceName = string.IsNullOrWhiteSpace(mergedVariables[i].Name) ? $"var{i}" : mergedVariables[i].Name.Trim();
                 var localName = MakeSafeIdentifier(sourceName, i);
                 if (!string.Equals(sourceName, localName, StringComparison.Ordinal))
                 {
@@ -138,7 +138,7 @@ namespace CompositeCurves.Editor
                 {
                     SourceName = sourceName,
                     LocalName = localName,
-                    DefaultValue = variables[i].Value,
+                    DefaultValue = mergedVariables[i].Value,
                     Index = i
                 });
             }

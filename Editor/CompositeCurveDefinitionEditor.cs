@@ -33,6 +33,8 @@ namespace CompositeCurves.Editor
                 MarkCurveChanged(curve, false);
             }
 
+            DrawDefinitionVariables(curve);
+
             EditorGUILayout.Space();
             DrawToolbar(curve);
             EditorGUILayout.Space();
@@ -81,6 +83,110 @@ namespace CompositeCurves.Editor
                     CompositeCurveCodeGenerator.RegenerateAll();
                 }
             }
+        }
+
+        private static void DrawDefinitionVariables(CompositeCurveDefinition curve)
+        {
+            EditorGUILayout.Space(2f);
+            EditorGUILayout.LabelField("Definition Variables", EditorStyles.miniBoldLabel);
+
+            var variables = curve.Variables ?? Array.Empty<CompositeCurveVariable>();
+            if (variables.Length == 0)
+            {
+                EditorGUILayout.HelpBox("This curve definition has no variables. Add variables here to share them across all segments.", MessageType.Info);
+            }
+
+            var updatedVariables = new System.Collections.Generic.List<CompositeCurveVariable>(variables.Length);
+            var changed = false;
+
+            for (var i = 0; i < variables.Length; i++)
+            {
+                var variable = variables[i];
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUI.BeginChangeCheck();
+                    var name = EditorGUILayout.TextField(variable.Name);
+                    var valueRect = GUILayoutUtility.GetRect(
+                        GUIContent.none,
+                        EditorStyles.numberField,
+                        GUILayout.MaxWidth(140f));
+                    var value = DrawScrollableFloatField(valueRect, variable.Value);
+                    if (GUILayout.Button("-", GUILayout.Width(24f)))
+                    {
+                        changed = true;
+                        continue;
+                    }
+
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        variable.Name = EnsureSharedSuffix(name);
+                        variable.Value = value;
+                        changed = true;
+                    }
+                }
+
+                updatedVariables.Add(variable);
+            }
+
+            if (GUILayout.Button("Add Variable"))
+            {
+                changed = true;
+                updatedVariables.Add(new CompositeCurveVariable(EnsureSharedSuffix($"var{updatedVariables.Count}"), 0f));
+            }
+
+            if (changed)
+            {
+                Undo.RecordObject(curve, "Edit Curve Definition Variables");
+                var compacted = CompactDefinitionVariables(updatedVariables.ToArray());
+                curve.SetVariables(compacted);
+                MarkCurveChanged(curve, false);
+            }
+        }
+
+        private static CompositeCurveVariable[] CompactDefinitionVariables(CompositeCurveVariable[] variables)
+        {
+            if (variables == null || variables.Length == 0)
+            {
+                return Array.Empty<CompositeCurveVariable>();
+            }
+
+            var count = 0;
+            for (var i = 0; i < variables.Length; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(variables[i].Name))
+                {
+                    count++;
+                }
+            }
+
+            if (count == variables.Length)
+            {
+                return variables;
+            }
+
+            var compacted = new CompositeCurveVariable[count];
+            var cursor = 0;
+            for (var i = 0; i < variables.Length; i++)
+            {
+                if (string.IsNullOrWhiteSpace(variables[i].Name))
+                {
+                    continue;
+                }
+
+                compacted[cursor++] = variables[i];
+            }
+
+            return compacted;
+        }
+
+        private static string EnsureSharedSuffix(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
+
+            return name.EndsWith("_shared", StringComparison.Ordinal) ? name : name + "_shared";
         }
 
         private static void DrawSegments(CompositeCurveDefinition curve)
