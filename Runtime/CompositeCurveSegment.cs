@@ -143,10 +143,15 @@ namespace CompositeCurves
 
         public float Evaluate(string curveId, float x)
         {
-            return EvaluateWithVariables(curveId, x, variables);
+            return EvaluateWithVariables(curveId, x, variables, false, 0);
         }
 
         public float EvaluateWithVariables(string curveId, float x, CompositeCurveVariable[] mergedVariables)
+        {
+            return EvaluateWithVariables(curveId, x, mergedVariables, false, 0);
+        }
+
+        public float EvaluateWithVariables(string curveId, float x, CompositeCurveVariable[] mergedVariables, bool useFixedSeed, int fixedSeed)
         {
             if (!enabled)
             {
@@ -155,7 +160,7 @@ namespace CompositeCurves
 
             if (mode == CompositeCurveSegmentMode.Custom)
             {
-                if (CompositeCurveGeneratedRegistry.TryEvaluate(curveId, segmentId, x, mergedVariables, out var generatedValue))
+                if (CompositeCurveGeneratedRegistry.TryEvaluate(curveId, segmentId, x, mergedVariables, useFixedSeed, fixedSeed, out var generatedValue))
                 {
                     return generatedValue;
                 }
@@ -174,6 +179,11 @@ namespace CompositeCurves
         public float EvaluateEdgeWithVariables(string curveId, bool useUpperEdge, CompositeCurveVariable[] mergedVariables)
         {
             return EvaluateWithVariables(curveId, useUpperEdge ? endX : startX, mergedVariables);
+        }
+
+        public float EvaluateEdgeWithVariables(string curveId, bool useUpperEdge, CompositeCurveVariable[] mergedVariables, bool useFixedSeed, int fixedSeed)
+        {
+            return EvaluateWithVariables(curveId, useUpperEdge ? endX : startX, mergedVariables, useFixedSeed, fixedSeed);
         }
 
         public CompositeCurveSegment Clone()

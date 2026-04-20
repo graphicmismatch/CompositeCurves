@@ -130,6 +130,7 @@ Common aliases are translated to `Mathf` calls in generated code, including:
 - `pi`
 - `deg2rad`
 - `rad2deg`
+- `random`
 
 ### Important rule
 
@@ -142,16 +143,59 @@ Use:
 - `Regenerate Custom Curves` in the inspector
 - or `Tools/Composite Curves/Regenerate Generated Curves`
 
+## Random Number Generation
+
+Custom expressions can use `random()` which returns a float between 0 and 1.
+
+The random behavior is controlled by seed variables:
+
+- `__seed__` on a segment takes precedence over definition-level seed
+- `__seed__shared` on the curve definition applies to all segments
+- A hardcoded seed value produces deterministic results
+- A value of `-1` uses a session seed for the current play session
+- If no seed variable exists, a session seed is used for the current play session
+
+### Seed Examples
+
+| Segment has `__seed__` | Curve has `__seed__shared` | Behavior |
+|---|---|---|
+| `42` | not set | Uses seed 42 |
+| `-1` | not set | Uses the current play-session seed |
+| not set | `42` | Uses seed 42 |
+| not set | `-1` | Uses the current play-session seed |
+| `-1` | `42` | Uses the current play-session seed (segment takes precedence) |
+| not set | not set | Uses the current play-session seed |
+
+The preview graph is also deterministic, but it uses preview-specific seeding:
+
+- if a segment `__seed__` exists, preview uses that seed
+- otherwise if a curve `__seed__shared` exists, preview uses that seed
+- otherwise preview falls back to seed `1337`
+- preview also mixes in the sampled `x`, so the same world-space `x` stays stable while you pan or zoom
+
 ## Variables
 
-Each segment has a variable list.
+Each segment has a variable list. Additionally, the curve definition itself can have shared variables accessible to all segments.
 
 You can:
 
-- rename variables
-- add variables
-- remove variables
+- rename segment variables
+- add segment variables
+- remove segment variables
 - change numeric values
+- add shared definition variables (optional)
+
+### Shared Definition Variables
+
+Shared variables are defined at the curve definition level (not on individual segments). They are automatically suffixed with `_shared` to avoid conflicts with segment-specific variable names.
+
+When a segment evaluates, its variables are merged with shared variables. Segment variables take precedence over shared variables with the same name (excluding the `_shared` suffix).
+
+Example:
+
+- Curve definition has shared variable: `amplitude_shared = 2`
+- Segment has variable: `amplitude = 5`
+- The segment uses `amplitude = 5` (segment takes precedence)
 
 ### Scroll editing
 
@@ -214,6 +258,8 @@ The preview shows:
 
 - the current view range
 - the detected data range
+
+For custom expressions that use `random()`, preview values are deterministic for each sampled `x`. Panning changes which `x` values are visible, but the same world-space `x` keeps the same preview result.
 
 ## Outside Range Behavior
 

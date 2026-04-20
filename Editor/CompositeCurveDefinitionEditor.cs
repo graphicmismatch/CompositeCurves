@@ -186,6 +186,12 @@ namespace CompositeCurves.Editor
                 return name;
             }
 
+            if (string.Equals(name, "__seed__", StringComparison.Ordinal)
+                || string.Equals(name, "__seed__shared", StringComparison.Ordinal))
+            {
+                return "__seed__shared";
+            }
+
             return name.EndsWith("_shared", StringComparison.Ordinal) ? name : name + "_shared";
         }
 
@@ -517,13 +523,7 @@ namespace CompositeCurves.Editor
 
             Handles.color = new Color(0.2f, 0.7f, 1f, 1f);
             var values = new Vector3[PreviewSamples];
-            for (var i = 0; i < PreviewSamples; i++)
-            {
-                var t = i / (PreviewSamples - 1f);
-                var x = Mathf.Lerp(previewState.MinX, previewState.MaxX, t);
-                var y = curve.GetValue(x);
-                values[i] = new Vector3(x, y, 0f);
-            }
+            curve.FillPreviewSamples(previewState.MinX, previewState.MaxX, values);
 
             for (var i = 1; i < values.Length; i++)
             {
@@ -582,11 +582,11 @@ namespace CompositeCurves.Editor
 
             var minY = float.PositiveInfinity;
             var maxY = float.NegativeInfinity;
-            for (var i = 0; i < PreviewSamples; i++)
+            var values = new Vector3[PreviewSamples];
+            curve.FillPreviewSamples(minX, maxX, values);
+            for (var i = 0; i < values.Length; i++)
             {
-                var t = i / (PreviewSamples - 1f);
-                var x = Mathf.Lerp(minX, maxX, t);
-                var y = curve.GetValue(x);
+                var y = values[i].y;
                 minY = Mathf.Min(minY, y);
                 maxY = Mathf.Max(maxY, y);
             }

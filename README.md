@@ -9,6 +9,8 @@ The package provides:
 - Piecewise curve assets through `CompositeCurveDefinition`
 - Built-in presets: constant, linear, quadratic, cubic, sine, cosine, tangent, quadratic bezier, cubic bezier
 - Per-segment variables for both presets and custom curves
+- Shared (definition) variables accessible to all segments
+- Random number generation with configurable seeds
 - Inclusive or exclusive start/end bounds per segment
 - A runtime API through `GetValue`, `Evaluate`, and `TryGetValue`
 - An inspector with segment editing, validation, preview, sorting, and manual code generation
@@ -19,6 +21,7 @@ The package provides:
 - Runtime asset: [CompositeCurveDefinition.cs](/home/graphicmismatch/dev/github/unity/CompositeCurves/Assets/CompositeCurves/Runtime/CompositeCurveDefinition.cs)
 - Runtime segment model: [CompositeCurveSegment.cs](/home/graphicmismatch/dev/github/unity/CompositeCurves/Assets/CompositeCurves/Runtime/CompositeCurveSegment.cs)
 - Shared enums and variable model: [CompositeCurveTypes.cs](/home/graphicmismatch/dev/github/unity/CompositeCurves/Assets/CompositeCurves/Runtime/CompositeCurveTypes.cs)
+- Random number generation: [CompositeCurveRandom.cs](/home/graphicmismatch/dev/github/unity/CompositeCurves/Assets/CompositeCurves/Runtime/CompositeCurveRandom.cs)
 - Editor inspector: [CompositeCurveDefinitionEditor.cs](/home/graphicmismatch/dev/github/unity/CompositeCurves/Assets/CompositeCurves/Editor/CompositeCurveDefinitionEditor.cs)
 - Custom curve generator: [CompositeCurveCodeGenerator.cs](/home/graphicmismatch/dev/github/unity/CompositeCurves/Assets/CompositeCurves/Editor/CompositeCurveCodeGenerator.cs)
 - Contributor notes: [ARCHITECTURE.md](/home/graphicmismatch/dev/github/unity/CompositeCurves/Assets/CompositeCurves/ARCHITECTURE.md)
@@ -28,10 +31,11 @@ The package provides:
 
 1. Create an asset through `Assets/Create/Composite Curves/Curve Definition`.
 2. Add preset or custom segments in the inspector.
-3. Adjust `Start X`, `End X`, bound inclusion, and variables for each segment.
-4. For custom segments, write a single expression using `x` and your configured variable names.
-5. Regenerate custom curves only when you want generated code to update.
-6. Use `curve.GetValue(x)` from game code.
+3. Optionally add shared variables at the curve definition level (these are automatically suffixed with `_shared`).
+4. Adjust `Start X`, `End X`, bound inclusion, and variables for each segment.
+5. For custom segments, write a single expression using `x`, your configured variable names, or `random()`.
+6. Regenerate custom curves only when you want generated code to update.
+7. Use `curve.GetValue(x)` from game code.
 
 For full authoring instructions, see [USER_MANUAL.md](/home/graphicmismatch/dev/github/unity/CompositeCurves/Assets/CompositeCurves/USER_MANUAL.md).
 
@@ -78,6 +82,9 @@ public sealed class CurveExample : MonoBehaviour
 - `Shift+Scroll` zooms X only.
 - `Alt+Scroll` zooms Y only.
 - `Reset View` refits the preview manually.
+- Preview randomness is deterministic for a given world-space `x`.
+- If a segment or curve seed is provided, the preview uses that seed.
+- If no seed variable exists, the preview falls back to seed `1337`.
 
 ## Tests
 

@@ -14,6 +14,10 @@ namespace CompositeCurves
 
         [NonSerialized] private CompositeCurveSegment[] sortedSegments = Array.Empty<CompositeCurveSegment>();
 
+        private const int PreviewRandomSeed = 1337;
+        private const string SegmentSeedName = "__seed__";
+        private const string SharedSeedName = "__seed__shared";
+
         public string CurveId => curveId;
         public CompositeCurveOutsideRangeMode OutsideRangeMode { get => outsideRangeMode; set => outsideRangeMode = value; }
         public CompositeCurveVariable[] Variables => variables;
@@ -26,11 +30,7 @@ namespace CompositeCurves
                 var processed = new CompositeCurveVariable[newVariables.Length];
                 for (var i = 0; i < newVariables.Length; i++)
                 {
-                    var name = newVariables[i].Name;
-                    if (!string.IsNullOrWhiteSpace(name) && !name.EndsWith("_shared", StringComparison.Ordinal))
-                    {
-                        name = name + "_shared";
-                    }
+                    var name = NormalizeDefinitionVariableName(newVariables[i].Name);
                     processed[i] = new CompositeCurveVariable(name, newVariables[i].Value);
                 }
                 variables = processed;
@@ -41,6 +41,22 @@ namespace CompositeCurves
             }
 
             RebuildRuntimeCache();
+        }
+
+        private static string NormalizeDefinitionVariableName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
+
+            if (string.Equals(name, SegmentSeedName, StringComparison.Ordinal)
+                || string.Equals(name, SharedSeedName, StringComparison.Ordinal))
+            {
+                return SharedSeedName;
+            }
+
+            return name.EndsWith("_shared", StringComparison.Ordinal) ? name : name + "_shared";
         }
 
         public CompositeCurveVariable[] GetMergedVariables(CompositeCurveVariable[] segmentVariables)
@@ -150,6 +166,31 @@ namespace CompositeCurves
             return Evaluate(x);
         }
 
+        public float GetValueForPreview(float x)
+        {
+            if (TryGetPreviewValue(x, out var value))
+            {
+                return value;
+            }
+
+            return 0f;
+        }
+
+        public void FillPreviewSamples(float minX, float maxX, Vector3[] values)
+        {
+            if (values == null || values.Length == 0)
+            {
+                return;
+            }
+
+            for (var i = 0; i < values.Length; i++)
+            {
+                var t = i / (values.Length - 1f);
+                var x = values.Length == 1 ? minX : Mathf.Lerp(minX, maxX, t);
+                values[i] = new Vector3(x, GetValueForPreview(x), 0f);
+            }
+        }
+
         public float Evaluate(float x)
         {
             if (TryGetValue(x, out var value))
@@ -162,6 +203,11 @@ namespace CompositeCurves
 
         public bool TryGetValue(float x, out float value)
         {
+            return TryGetValue(x, false, 0, out value);
+        }
+
+        private bool TryGetPreviewValue(float x, out float value)
+        {
             if (sortedSegments == null || sortedSegments.Length == 0)
             {
                 value = 0f;
@@ -172,15 +218,35 @@ namespace CompositeCurves
             if (matchIndex >= 0)
             {
                 var mergedVariables = GetMergedVariables(sortedSegments[matchIndex].Variables);
-                value = sortedSegments[matchIndex].EvaluateWithVariables(curveId, x, mergedVariables);
+                value = EvaluatePreviewValue(sortedSegments[matchIndex], x, mergedVariables);
                 return true;
             }
 
-            value = ResolveOutOfRangeValue(x);
+            value = ResolvePreviewOutOfRangeValue(x);
             return outsideRangeMode != CompositeCurveOutsideRangeMode.ReturnZero || !Mathf.Approximately(value, 0f);
         }
 
-        private float ResolveOutOfRangeValue(float x)
+        public bool TryGetValue(float x, bool useFixedSeed, int fixedSeed, out float value)
+        {
+            if (sortedSegments == null || sortedSegments.Length == 0)
+            {
+                value = 0f;
+                return false;
+            }
+
+            var matchIndex = FindContainingSegmentIndex(x);
+            if (matchIndex >= 0)
+            {
+                var mergedVariables = GetMergedVariables(sortedSegments[matchIndex].Variables);
+                value = sortedSegments[matchIndex].EvaluateWithVariables(curveId, x, mergedVariables, useFixedSeed, fixedSeed);
+                return true;
+            }
+
+            value = ResolveOutOfRangeValue(x, useFixedSeed, fixedSeed);
+            return outsideRangeMode != CompositeCurveOutsideRangeMode.ReturnZero || !Mathf.Approximately(value, 0f);
+        }
+
+        private float ResolveOutOfRangeValue(float x, bool useFixedSeed, int fixedSeed)
         {
             if (outsideRangeMode == CompositeCurveOutsideRangeMode.ReturnZero || sortedSegments.Length == 0)
             {
@@ -192,8 +258,8 @@ namespace CompositeCurves
             if (x <= sortedSegments[0].StartX)
             {
                 return outsideRangeMode == CompositeCurveOutsideRangeMode.ClampToEdge
-                    ? sortedSegments[0].EvaluateEdgeWithVariables(curveId, false, mergedVariables)
-                    : sortedSegments[0].EvaluateWithVariables(curveId, x, mergedVariables);
+                    ? sortedSegments[0].EvaluateEdgeWithVariables(curveId, false, mergedVariables, useFixedSeed, fixedSeed)
+                    : sortedSegments[0].EvaluateWithVariables(curveId, x, mergedVariables, useFixedSeed, fixedSeed);
             }
 
             var lastSegment = sortedSegments[sortedSegments.Length - 1];
@@ -201,8 +267,8 @@ namespace CompositeCurves
             if (x >= lastSegment.EndX)
             {
                 return outsideRangeMode == CompositeCurveOutsideRangeMode.ClampToEdge
-                    ? lastSegment.EvaluateEdgeWithVariables(curveId, true, lastMergedVariables)
-                    : lastSegment.EvaluateWithVariables(curveId, x, lastMergedVariables);
+                    ? lastSegment.EvaluateEdgeWithVariables(curveId, true, lastMergedVariables, useFixedSeed, fixedSeed)
+                    : lastSegment.EvaluateWithVariables(curveId, x, lastMergedVariables, useFixedSeed, fixedSeed);
             }
 
             var leftIndex = FindPreviousSegmentIndex(x);
@@ -215,15 +281,77 @@ namespace CompositeCurves
                 var distanceToLeft = Mathf.Abs(x - leftSegment.EndX);
                 var distanceToRight = Mathf.Abs(rightSegment.StartX - x);
                 return distanceToLeft <= distanceToRight
-                    ? leftSegment.EvaluateWithVariables(curveId, x, GetMergedVariables(leftSegment.Variables))
-                    : rightSegment.EvaluateWithVariables(curveId, x, GetMergedVariables(rightSegment.Variables));
+                    ? leftSegment.EvaluateWithVariables(curveId, x, GetMergedVariables(leftSegment.Variables), useFixedSeed, fixedSeed)
+                    : rightSegment.EvaluateWithVariables(curveId, x, GetMergedVariables(rightSegment.Variables), useFixedSeed, fixedSeed);
             }
 
             var leftEdgeDistance = Mathf.Abs(x - leftSegment.EndX);
             var rightEdgeDistance = Mathf.Abs(rightSegment.StartX - x);
             return leftEdgeDistance <= rightEdgeDistance
-                ? leftSegment.EvaluateEdgeWithVariables(curveId, true, GetMergedVariables(leftSegment.Variables))
-                : rightSegment.EvaluateEdgeWithVariables(curveId, false, GetMergedVariables(rightSegment.Variables));
+                ? leftSegment.EvaluateEdgeWithVariables(curveId, true, GetMergedVariables(leftSegment.Variables), useFixedSeed, fixedSeed)
+                : rightSegment.EvaluateEdgeWithVariables(curveId, false, GetMergedVariables(rightSegment.Variables), useFixedSeed, fixedSeed);
+        }
+
+        private float ResolvePreviewOutOfRangeValue(float x)
+        {
+            if (outsideRangeMode == CompositeCurveOutsideRangeMode.ReturnZero || sortedSegments.Length == 0)
+            {
+                return 0f;
+            }
+
+            var mergedVariables = GetMergedVariables(sortedSegments[0].Variables);
+
+            if (x <= sortedSegments[0].StartX)
+            {
+                return outsideRangeMode == CompositeCurveOutsideRangeMode.ClampToEdge
+                    ? EvaluatePreviewValue(sortedSegments[0], sortedSegments[0].StartX, mergedVariables)
+                    : EvaluatePreviewValue(sortedSegments[0], x, mergedVariables);
+            }
+
+            var lastSegment = sortedSegments[sortedSegments.Length - 1];
+            var lastMergedVariables = GetMergedVariables(lastSegment.Variables);
+            if (x >= lastSegment.EndX)
+            {
+                return outsideRangeMode == CompositeCurveOutsideRangeMode.ClampToEdge
+                    ? EvaluatePreviewValue(lastSegment, lastSegment.EndX, lastMergedVariables)
+                    : EvaluatePreviewValue(lastSegment, x, lastMergedVariables);
+            }
+
+            var leftIndex = FindPreviousSegmentIndex(x);
+            var rightIndex = Mathf.Clamp(leftIndex + 1, 0, sortedSegments.Length - 1);
+            var leftSegment = sortedSegments[Mathf.Clamp(leftIndex, 0, sortedSegments.Length - 1)];
+            var rightSegment = sortedSegments[rightIndex];
+
+            if (outsideRangeMode == CompositeCurveOutsideRangeMode.ExtrapolateNearestSegment)
+            {
+                var distanceToLeft = Mathf.Abs(x - leftSegment.EndX);
+                var distanceToRight = Mathf.Abs(rightSegment.StartX - x);
+                return distanceToLeft <= distanceToRight
+                    ? EvaluatePreviewValue(leftSegment, x, GetMergedVariables(leftSegment.Variables))
+                    : EvaluatePreviewValue(rightSegment, x, GetMergedVariables(rightSegment.Variables));
+            }
+
+            var leftEdgeDistance = Mathf.Abs(x - leftSegment.EndX);
+            var rightEdgeDistance = Mathf.Abs(rightSegment.StartX - x);
+            return leftEdgeDistance <= rightEdgeDistance
+                ? EvaluatePreviewValue(leftSegment, leftSegment.EndX, GetMergedVariables(leftSegment.Variables))
+                : EvaluatePreviewValue(rightSegment, rightSegment.StartX, GetMergedVariables(rightSegment.Variables));
+        }
+
+        private float EvaluatePreviewValue(CompositeCurveSegment segment, float x, CompositeCurveVariable[] mergedVariables)
+        {
+            return segment.EvaluateWithVariables(curveId, x, mergedVariables, true, GetPreviewSeed(mergedVariables, x));
+        }
+
+        private static int GetPreviewSeed(CompositeCurveVariable[] variables, float x)
+        {
+            unchecked
+            {
+                var extractedSeed = CompositeCurveGeneratedRegistry.ExtractSeed(variables);
+                var hash = extractedSeed ?? PreviewRandomSeed;
+                hash = (hash * 397) ^ BitConverter.SingleToInt32Bits(x);
+                return hash;
+            }
         }
 
         private int FindContainingSegmentIndex(float x)

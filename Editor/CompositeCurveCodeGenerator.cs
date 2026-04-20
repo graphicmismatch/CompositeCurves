@@ -280,6 +280,7 @@ namespace CompositeCurves.Editor
             normalized = ReplaceFunctionCall(normalized, "max", "Mathf.Max");
             normalized = ReplaceFunctionCall(normalized, "clamp", "Mathf.Clamp");
             normalized = ReplaceFunctionCall(normalized, "clamp01", "Mathf.Clamp01");
+            normalized = ReplaceFunctionCall(normalized, "random", "CompositeCurveRandom.NextFloat");
             normalized = ReplaceFunctionCall(normalized, "exp", "Mathf.Exp");
             normalized = ReplaceFunctionCall(normalized, "log", "Mathf.Log");
             normalized = ReplaceFunctionCall(normalized, "log10", "Mathf.Log10");

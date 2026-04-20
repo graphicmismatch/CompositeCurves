@@ -1,6 +1,6 @@
 using NUnit.Framework;
 using UnityEngine;
-
+using System;
 namespace CompositeCurves.Editor
 {
     public sealed class CompositeCurveRuntimeTests
@@ -291,6 +291,430 @@ namespace CompositeCurves.Editor
 
             Assert.AreEqual(5f, curve.GetValue(3f), 0.0001f);
             Assert.AreEqual(9f, curve.GetValue(5f), 0.0001f);
+        }
+
+        [Test]
+        public void DefinitionVariablesHaveSharedSuffixAdded()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.SetVariables(new[]
+            {
+                new CompositeCurveVariable("myVar", 5f),
+                new CompositeCurveVariable("other_shared", 10f)
+            });
+
+            Assert.AreEqual("myVar_shared", curve.Variables[0].Name);
+            Assert.AreEqual("other_shared", curve.Variables[1].Name);
+        }
+
+        [Test]
+        public void DefinitionVariablesAreMergedWithSegmentVariables()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.SetVariables(new[]
+            {
+                new CompositeCurveVariable("sharedVal", 100f)
+            });
+
+            var segment = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Preset = CompositeCurvePreset.Constant
+            };
+            segment.SetVariables(new[]
+            {
+                new CompositeCurveVariable("y", 50f)
+            });
+
+            curve.Segments.Add(segment);
+            curve.RebuildRuntimeCache();
+
+            var merged = curve.GetMergedVariables(segment.Variables);
+            Assert.AreEqual(2, merged.Length);
+            Assert.AreEqual("sharedVal_shared", merged[0].Name);
+            Assert.AreEqual(100f, merged[0].Value);
+            Assert.AreEqual("y", merged[1].Name);
+            Assert.AreEqual(50f, merged[1].Value);
+        }
+
+        [Test]
+        public void SegmentVariablesTakePrecedenceOverSharedVariables()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.SetVariables(new[]
+            {
+                new CompositeCurveVariable("sharedVal", 100f)
+            });
+
+            var segment = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Preset = CompositeCurvePreset.Linear
+            };
+            segment.SetVariables(new[]
+            {
+                new CompositeCurveVariable("m", 1f),
+                new CompositeCurveVariable("c", 0f),
+                new CompositeCurveVariable("sharedVal", 999f)
+            });
+
+            curve.Segments.Add(segment);
+            curve.RebuildRuntimeCache();
+
+            var merged = curve.GetMergedVariables(segment.Variables);
+            Assert.AreEqual(4, merged.Length);
+            Assert.AreEqual("sharedVal_shared", merged[0].Name);
+            Assert.AreEqual(100f, merged[0].Value);
+            Assert.AreEqual("m", merged[1].Name);
+            Assert.AreEqual("c", merged[2].Name);
+            Assert.AreEqual("sharedVal", merged[3].Name);
+            Assert.AreEqual(999f, merged[3].Value);
+        }
+
+        [Test]
+        public void PreviewUsesFixedSeedForDeterministicRendering()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.OutsideRangeMode = CompositeCurveOutsideRangeMode.ReturnZero;
+
+            var segment = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Mode = CompositeCurveSegmentMode.Custom,
+                CustomExpression = "random()"
+            };
+            segment.SetVariables(Array.Empty<CompositeCurveVariable>());
+
+            curve.Segments.Add(segment);
+            curve.EnsureIdentifiers();
+            curve.RebuildRuntimeCache();
+
+            CompositeCurveGeneratedRegistry.Register(
+                delegate(string curveId, string segmentId, float x, CompositeCurveVariable[] vars, out float value)
+                {
+                    value = CompositeCurveRandom.NextFloat();
+                    return true;
+                });
+
+            var firstCall = curve.GetValueForPreview(5f);
+            var secondCall = curve.GetValueForPreview(5f);
+            Assert.AreEqual(firstCall, secondCall, 0.0001f);
+        }
+
+        [Test]
+        public void PreviewUsesFallbackSeed1337WhenNoSeedVariableExists()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.OutsideRangeMode = CompositeCurveOutsideRangeMode.ReturnZero;
+
+            var segment = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Mode = CompositeCurveSegmentMode.Custom,
+                CustomExpression = "random()"
+            };
+            segment.SetVariables(Array.Empty<CompositeCurveVariable>());
+
+            curve.Segments.Add(segment);
+            curve.EnsureIdentifiers();
+            curve.RebuildRuntimeCache();
+
+            CompositeCurveGeneratedRegistry.Register(
+                delegate(string curveId, string segmentId, float x, CompositeCurveVariable[] vars, out float value)
+                {
+                    value = CompositeCurveRandom.NextFloat();
+                    return true;
+                });
+
+            var actual = curve.GetValueForPreview(5f);
+
+            CompositeCurveRandom.ResetToFixedSeed(GetExpectedPreviewSeed(1337, 5f));
+            var expected = CompositeCurveRandom.NextFloat();
+
+            Assert.AreEqual(expected, actual, 0.0001f);
+        }
+
+        [Test]
+        public void RandomNextFloatReturnsValueBetweenZeroAndOne()
+        {
+            CompositeCurveRandom.ResetToFixedSeed(42);
+
+            for (var i = 0; i < 100; i++)
+            {
+                var value = CompositeCurveRandom.NextFloat();
+                Assert.GreaterOrEqual(value, 0f);
+                Assert.LessOrEqual(value, 1f);
+            }
+        }
+
+        [Test]
+        public void FixedSeedProducesDeterministicRandomSequence()
+        {
+            CompositeCurveRandom.ResetToFixedSeed(12345);
+            var first = CompositeCurveRandom.NextFloat();
+
+            CompositeCurveRandom.ResetToFixedSeed(12345);
+            var second = CompositeCurveRandom.NextFloat();
+
+            Assert.AreEqual(first, second, 0.0001f);
+        }
+
+        [Test]
+        public void RandomSeedChangesOnEachReset()
+        {
+            CompositeCurveRandom.ResetToRandomSeed();
+            var first = CompositeCurveRandom.NextFloat();
+
+            CompositeCurveRandom.ResetToRandomSeed();
+            var second = CompositeCurveRandom.NextFloat();
+
+            Assert.That(first, Is.Not.EqualTo(second).Within(0.0001f));
+        }
+
+        [Test]
+        public void SegmentSeedTakesPrecedenceOverSharedSeed()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.SetVariables(new[]
+            {
+                new CompositeCurveVariable("__seed__shared", 11111)
+            });
+
+            var segment = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Mode = CompositeCurveSegmentMode.Custom,
+                CustomExpression = "random()"
+            };
+            segment.SetVariables(new[]
+            {
+                new CompositeCurveVariable("__seed__", 22222)
+            });
+
+            curve.Segments.Add(segment);
+            curve.EnsureIdentifiers();
+            curve.RebuildRuntimeCache();
+
+            CompositeCurveGeneratedRegistry.Register(
+                delegate(string curveId, string segmentId, float x, CompositeCurveVariable[] vars, out float value)
+                {
+                    value = CompositeCurveRandom.NextFloat();
+                    return true;
+                });
+
+            var actual = curve.GetValue(5f);
+
+            CompositeCurveRandom.ResetToFixedSeed(22222);
+            var expected = CompositeCurveRandom.NextFloat();
+
+            Assert.AreEqual(expected, actual, 0.0001f);
+        }
+
+        [Test]
+        public void PreviewUsesSegmentSeedWhenProvided()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.SetVariables(new[]
+            {
+                new CompositeCurveVariable("__seed__shared", 42)
+            });
+
+            var segment = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Mode = CompositeCurveSegmentMode.Custom,
+                CustomExpression = "random()"
+            };
+            segment.SetVariables(new[]
+            {
+                new CompositeCurveVariable("__seed__", 22222f)
+            });
+
+            curve.Segments.Add(segment);
+            curve.EnsureIdentifiers();
+            curve.RebuildRuntimeCache();
+
+            CompositeCurveGeneratedRegistry.Register(
+                delegate(string curveId, string segmentId, float x, CompositeCurveVariable[] vars, out float value)
+                {
+                    value = CompositeCurveRandom.NextFloat();
+                    return true;
+                });
+
+            var actual = curve.GetValueForPreview(5f);
+
+            CompositeCurveRandom.ResetToFixedSeed(GetExpectedPreviewSeed(22222, 5f));
+            var expected = CompositeCurveRandom.NextFloat();
+
+            Assert.AreEqual(expected, actual, 0.0001f);
+        }
+
+        [Test]
+        public void PreviewUsesSharedSeedWhenSegmentSeedIsMissing()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.SetVariables(new[]
+            {
+                new CompositeCurveVariable("__seed__shared", 42)
+            });
+
+            var segment = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Mode = CompositeCurveSegmentMode.Custom,
+                CustomExpression = "random()"
+            };
+            segment.SetVariables(Array.Empty<CompositeCurveVariable>());
+
+            curve.Segments.Add(segment);
+            curve.EnsureIdentifiers();
+            curve.RebuildRuntimeCache();
+
+            CompositeCurveGeneratedRegistry.Register(
+                delegate(string curveId, string segmentId, float x, CompositeCurveVariable[] vars, out float value)
+                {
+                    value = CompositeCurveRandom.NextFloat();
+                    return true;
+                });
+
+            var actual = curve.GetValueForPreview(5f);
+
+            CompositeCurveRandom.ResetToFixedSeed(GetExpectedPreviewSeed(42, 5f));
+            var expected = CompositeCurveRandom.NextFloat();
+
+            Assert.AreEqual(expected, actual, 0.0001f);
+        }
+
+        [Test]
+        public void SeedValueNegativeOneUsesSessionSeedAtRuntime()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.SetVariables(new[]
+            {
+                new CompositeCurveVariable("__seed__shared", 42)
+            });
+
+            var segment = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Mode = CompositeCurveSegmentMode.Custom,
+                CustomExpression = "random()"
+            };
+            segment.SetVariables(new[]
+            {
+                new CompositeCurveVariable("__seed__", -1f)
+            });
+
+            curve.Segments.Add(segment);
+            curve.EnsureIdentifiers();
+            curve.RebuildRuntimeCache();
+
+            CompositeCurveGeneratedRegistry.Register(
+                delegate(string curveId, string segmentId, float x, CompositeCurveVariable[] vars, out float value)
+                {
+                    value = CompositeCurveRandom.NextFloat();
+                    return true;
+                });
+
+            var firstCall = curve.GetValue(5f);
+            var secondCall = curve.GetValue(5f);
+
+            Assert.AreEqual(firstCall, secondCall, 0.0001f);
+        }
+
+        [Test]
+        public void NoSeedVariableUsesSessionSeedAtRuntime()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+
+            var segment = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Mode = CompositeCurveSegmentMode.Custom,
+                CustomExpression = "random()"
+            };
+            segment.SetVariables(Array.Empty<CompositeCurveVariable>());
+
+            curve.Segments.Add(segment);
+            curve.EnsureIdentifiers();
+            curve.RebuildRuntimeCache();
+
+            CompositeCurveGeneratedRegistry.Register(
+                delegate(string curveId, string segmentId, float x, CompositeCurveVariable[] vars, out float value)
+                {
+                    value = CompositeCurveRandom.NextFloat();
+                    return true;
+                });
+
+            var firstCall = curve.GetValue(5f);
+            var secondCall = curve.GetValue(5f);
+
+            Assert.AreEqual(firstCall, secondCall, 0.0001f);
+        }
+
+        [Test]
+        public void SharedDefinitionVariableAffectsAllSegments()
+        {
+            var curve = ScriptableObject.CreateInstance<CompositeCurveDefinition>();
+            curve.SetVariables(new[]
+            {
+                new CompositeCurveVariable("globalMult", 10f)
+            });
+
+            var segment1 = new CompositeCurveSegment
+            {
+                StartX = 0f,
+                EndX = 10f,
+                Preset = CompositeCurvePreset.Linear
+            };
+            segment1.SetVariables(new[]
+            {
+                new CompositeCurveVariable("m", 1f),
+                new CompositeCurveVariable("c", 0f)
+            });
+
+            var segment2 = new CompositeCurveSegment
+            {
+                StartX = 10f,
+                EndX = 20f,
+                Preset = CompositeCurvePreset.Linear
+            };
+            segment2.SetVariables(new[]
+            {
+                new CompositeCurveVariable("m", 1f),
+                new CompositeCurveVariable("c", 0f)
+            });
+
+            curve.Segments.Add(segment1);
+            curve.Segments.Add(segment2);
+            curve.RebuildRuntimeCache();
+
+            var merged1 = curve.GetMergedVariables(segment1.Variables);
+            var merged2 = curve.GetMergedVariables(segment2.Variables);
+
+            Assert.AreEqual(merged1[0].Name, "globalMult_shared");
+            Assert.AreEqual(merged2[0].Name, "globalMult_shared");
+            Assert.AreEqual(10f, merged1[0].Value);
+            Assert.AreEqual(10f, merged2[0].Value);
+        }
+
+        private static int GetExpectedPreviewSeed(int baseSeed, float x)
+        {
+            unchecked
+            {
+                var hash = baseSeed;
+                hash = (hash * 397) ^ BitConverter.SingleToInt32Bits(x);
+                return hash;
+            }
         }
     }
 }
