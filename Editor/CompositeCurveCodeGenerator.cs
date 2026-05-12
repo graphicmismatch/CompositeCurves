@@ -139,7 +139,8 @@ namespace CompositeCurves.Editor
                     SourceName = sourceName,
                     LocalName = localName,
                     DefaultValue = mergedVariables[i].Value,
-                    Index = i
+                    Index = i,
+                    IsShared = IsSharedVariable(sourceName)
                 });
             }
 
@@ -192,6 +193,16 @@ namespace CompositeCurves.Editor
                     }
 
                     builder.AppendLine($"                case \"{EscapeForString(segment.CurveId)}\":");
+                    builder.AppendLine("                {");
+
+                    var sharedVariables = CollectSharedVariables(customSegments, segment.CurveId);
+                    for (var variableIndex = 0; variableIndex < sharedVariables.Count; variableIndex++)
+                    {
+                        var variable = sharedVariables[variableIndex];
+                        builder.AppendLine(
+                            $"                    var {variable.LocalName} = variables != null && variables.Length > {variable.Index} ? variables[{variable.Index}].Value : {FormatFloat(variable.DefaultValue)};");
+                    }
+
                     builder.AppendLine("                    switch (segmentId)");
                     builder.AppendLine("                    {");
 
@@ -204,22 +215,30 @@ namespace CompositeCurves.Editor
                         }
 
                         builder.AppendLine($"                        case \"{EscapeForString(candidate.SegmentId)}\":");
+                        builder.AppendLine("                        {");
 
                         for (var variableIndex = 0; variableIndex < candidate.Variables.Count; variableIndex++)
                         {
                             var variable = candidate.Variables[variableIndex];
+                            if (variable.IsShared)
+                            {
+                                continue;
+                            }
+
                             builder.AppendLine(
                                 $"                            var {variable.LocalName} = variables != null && variables.Length > {variable.Index} ? variables[{variable.Index}].Value : {FormatFloat(variable.DefaultValue)};");
                         }
 
                         builder.AppendLine($"                            value = {candidate.Expression};");
                         builder.AppendLine("                            return true;");
+                        builder.AppendLine("                        }");
                     }
 
                     builder.AppendLine("                        default:");
                     builder.AppendLine("                            break;");
                     builder.AppendLine("                    }");
                     builder.AppendLine("                    break;");
+                    builder.AppendLine("                }");
                 }
 
                 builder.AppendLine("                default:");
@@ -234,6 +253,35 @@ namespace CompositeCurves.Editor
             builder.AppendLine("    }");
             builder.AppendLine("}");
             return builder.ToString();
+        }
+
+
+        private static List<VariableBinding> CollectSharedVariables(List<CustomSegmentInfo> customSegments, string curveId)
+        {
+            var result = new List<VariableBinding>();
+            var emittedNames = new HashSet<string>(StringComparer.Ordinal);
+
+            for (var segmentIndex = 0; segmentIndex < customSegments.Count; segmentIndex++)
+            {
+                var segment = customSegments[segmentIndex];
+                if (!string.Equals(segment.CurveId, curveId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                for (var variableIndex = 0; variableIndex < segment.Variables.Count; variableIndex++)
+                {
+                    var variable = segment.Variables[variableIndex];
+                    if (!variable.IsShared || !emittedNames.Add(variable.LocalName))
+                    {
+                        continue;
+                    }
+
+                    result.Add(variable);
+                }
+            }
+
+            return result;
         }
 
         private static void WriteGeneratedFile(string content)
@@ -292,6 +340,11 @@ namespace CompositeCurves.Editor
             normalized = Regex.Replace(normalized, @"(?<![\w.])deg2rad(?![\w.])", "Mathf.Deg2Rad", RegexOptions.IgnoreCase);
             normalized = Regex.Replace(normalized, @"(?<![\w.])rad2deg(?![\w.])", "Mathf.Rad2Deg", RegexOptions.IgnoreCase);
             return normalized;
+        }
+
+        private static bool IsSharedVariable(string sourceName)
+        {
+            return !string.IsNullOrEmpty(sourceName) && sourceName.EndsWith("_shared", StringComparison.Ordinal);
         }
 
         private static string ReplaceFunctionCall(string input, string alias, string replacement)
@@ -390,6 +443,7 @@ namespace CompositeCurves.Editor
             public string LocalName;
             public float DefaultValue;
             public int Index;
+            public bool IsShared;
         }
     }
 }

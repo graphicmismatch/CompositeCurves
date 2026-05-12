@@ -129,6 +129,59 @@ namespace CompositeCurves.Editor
             StringAssert.Contains(second.SegmentId, generatedSource);
         }
 
+
+        [Test]
+        public void RegenerateAllScopesSharedAndSegmentVariablesSeparately()
+        {
+            var curve = CompositeCurveTestUtility.CreateCurveAsset("GeneratorScopedVariables");
+            curve.SetVariables(new[]
+            {
+                new CompositeCurveVariable("generatorScopedMax", 2.7f),
+                new CompositeCurveVariable("generatorScopedMin", 0.3f)
+            });
+
+            var first = new CompositeCurveSegment
+            {
+                DisplayName = "A",
+                StartX = 0f,
+                EndX = 1f,
+                Mode = CompositeCurveSegmentMode.Custom,
+                CustomExpression = "generatorScopedMax_shared - generatorScopedGain"
+            };
+            first.SetVariables(new[]
+            {
+                new CompositeCurveVariable("generatorScopedGain", 0.1f)
+            });
+
+            var second = new CompositeCurveSegment
+            {
+                DisplayName = "B",
+                StartX = 1f,
+                EndX = 2f,
+                Mode = CompositeCurveSegmentMode.Custom,
+                CustomExpression = "generatorScopedMin_shared + generatorScopedGain"
+            };
+            second.SetVariables(new[]
+            {
+                new CompositeCurveVariable("generatorScopedGain", 0.5f)
+            });
+
+            curve.Segments.Add(first);
+            curve.Segments.Add(second);
+            EditorUtility.SetDirty(curve);
+            AssetDatabase.SaveAssets();
+
+            CompositeCurveCodeGenerator.RegenerateAll();
+
+            var generatedSource = CompositeCurveTestUtility.ReadGeneratedSource();
+
+            Assert.AreEqual(1, CountOccurrences(generatedSource, "var generatorScopedMax_shared = variables != null && variables.Length > 0 ? variables[0].Value : 2.7f;"));
+            Assert.AreEqual(1, CountOccurrences(generatedSource, "var generatorScopedMin_shared = variables != null && variables.Length > 1 ? variables[1].Value : 0.3f;"));
+            Assert.AreEqual(2, CountOccurrences(generatedSource, "var generatorScopedGain = variables != null && variables.Length > 2 ? variables[2].Value"));
+            StringAssert.Contains("value = generatorScopedMax_shared - generatorScopedGain;", generatedSource);
+            StringAssert.Contains("value = generatorScopedMin_shared + generatorScopedGain;", generatedSource);
+        }
+
         [Test]
         public void RegenerateAllAssignsIdsToAssetBackedCurvesAndSegments()
         {
